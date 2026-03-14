@@ -20,6 +20,8 @@ export default function BillAnalyzerPage() {
   const { user, authLoading } = useAppSession();
   const [rawInput, setRawInput] = useState(demoBillInput);
   const [file, setFile] = useState<File | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseError, setParseError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<BillAnalysisItem[] | null>(null);
@@ -32,6 +34,37 @@ export default function BillAnalyzerPage() {
   if (!user) {
     return null;
   }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+
+    setFile(selectedFile);
+    setParseError("");
+    setIsParsing(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const res = await fetch("/api/parse-bill", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setParseError(data.error || "Failed to parse file.");
+      } else {
+        setRawInput(data.lineItems);
+      }
+    } catch {
+      setParseError("Something went wrong reading the file.");
+    } finally {
+      setIsParsing(false);
+    }
+  };
 
   const runAnalysis = async () => {
     setError(null);
@@ -60,7 +93,7 @@ export default function BillAnalyzerPage() {
       <div className="space-y-6">
         <Card className="space-y-4">
           <div>
-            <h2 className="text-xl font-semibold text-card-foreground">Medical bill analyzer</h2>
+            <h2 className="text-xl font-semibold text-card-foreground">I already saw a doctor!</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Upload a PDF/image and enter line items to compare billed charges with common cost ranges.
             </p>
@@ -76,9 +109,41 @@ export default function BillAnalyzerPage() {
               id="bill-file"
               type="file"
               accept=".pdf,image/*"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              onChange={handleFileUpload}
+              disabled={isParsing}
             />
-            {file ? <p className="text-xs text-muted-foreground">Selected file: {file.name}</p> : null}
+            {!file && !isParsing && (
+              <p style={{ fontSize: "12px", color: "#8896b3", marginTop: "4px" }}>
+                Upload a PDF or photo of your bill — charges will be extracted automatically
+              </p>
+            )}
+            {file && !isParsing && (
+              <p className="text-xs text-muted-foreground">Selected file: {file.name}</p>
+            )}
+            {isParsing && (
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                marginTop: "8px",
+                fontSize: "13px",
+                color: "#e8543a",
+              }}>
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2"
+                  style={{ animation: "spin 1s linear infinite" }}
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                Reading your bill...
+              </div>
+            )}
+            {parseError && (
+              <p style={{ color: "#b03318", fontSize: "13px", marginTop: "6px" }}>
+                {parseError}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -93,7 +158,7 @@ export default function BillAnalyzerPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <GradientButton onClick={runAnalysis} disabled={isAnalyzing}>
+            <GradientButton onClick={runAnalysis} disabled={isAnalyzing || isParsing}>
               {isAnalyzing ? "Analyzing..." : "Analyze bill locally"}
             </GradientButton>
             <GradientButton type="button" variant="secondary" onClick={() => setRawInput(demoBillInput)}>

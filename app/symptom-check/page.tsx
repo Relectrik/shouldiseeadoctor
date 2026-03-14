@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
 import { demoSymptomScenarios } from "@/data/demoScenarios";
@@ -11,6 +11,7 @@ import { StructuredSymptoms, TriageResult } from "@/lib/types";
 import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
 import { LoadingState } from "@/components/common/loading-state";
+import { AIVoiceInput } from "@/components/ui/ai-voice-input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { GradientButton } from "@/components/ui/gradient-button";
@@ -31,10 +32,28 @@ function triageBadge(urgency: TriageResult["triageLevel"]) {
 
 export default function SymptomCheckPage() {
   const { user, profile, authLoading, profileLoading } = useAppSession();
-  const [symptomInput, setSymptomInput] = useState(demoSymptomScenarios[0].text);
+  const [symptomText, setSymptomText] = useState(demoSymptomScenarios[0].text);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const liveTranscriptRef = useRef("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SymptomResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTyping || !voiceTranscript) return;
+    setSymptomText("");
+    let i = 0;
+    const interval = setInterval(() => {
+      setSymptomText(voiceTranscript.slice(0, i + 1));
+      i++;
+      if (i >= voiceTranscript.length) {
+        clearInterval(interval);
+        setIsTyping(false);
+      }
+    }, 40);
+    return () => clearInterval(interval);
+  }, [voiceTranscript, isTyping]);
 
   if (authLoading) {
     return <LoadingState message="Loading symptom check..." />;
@@ -46,7 +65,7 @@ export default function SymptomCheckPage() {
 
   const analyzeSymptoms = async () => {
     setError(null);
-    if (!symptomInput.trim()) {
+    if (!symptomText.trim()) {
       setError("Please describe your symptoms before analyzing.");
       return;
     }
@@ -55,8 +74,8 @@ export default function SymptomCheckPage() {
       return;
     }
 
-    const structured = parseSymptomsFromText(symptomInput);
-    const triage = getTriageRecommendation(structured, symptomInput);
+    const structured = parseSymptomsFromText(symptomText);
+    const triage = getTriageRecommendation(structured, symptomText);
     const careRoute = getCareRouteCostsByState(profile.state);
     const nextResult: SymptomResult = { structured, triage };
     setResult(nextResult);
@@ -65,7 +84,7 @@ export default function SymptomCheckPage() {
     try {
       await saveSymptomCheck({
         userId: user.uid,
-        rawSymptoms: symptomInput,
+        rawSymptoms: symptomText,
         structuredSymptoms: structured,
         triage,
         careRoute,
@@ -95,7 +114,7 @@ export default function SymptomCheckPage() {
                 variant="secondary"
                 size="sm"
                 type="button"
-                onClick={() => setSymptomInput(scenario.text)}
+                onClick={() => setSymptomText(scenario.text)}
               >
                 Demo: {scenario.label}
               </GradientButton>
@@ -103,10 +122,34 @@ export default function SymptomCheckPage() {
           </div>
 
           <Textarea
-            value={symptomInput}
-            onChange={(event) => setSymptomInput(event.target.value)}
+            value={symptomText}
+            onChange={(event) => setSymptomText(event.target.value)}
             placeholder="I twisted my ankle playing basketball and it hurts when I walk..."
             className="min-h-[150px]"
+          />
+
+          <div className="flex items-center gap-3 my-4">
+            <hr className="flex-1" style={{ borderColor: "#e2e6f0" }} />
+            <span className="text-xs" style={{ color: "#6b7280" }}>or speak your symptoms</span>
+            <hr className="flex-1" style={{ borderColor: "#e2e6f0" }} />
+          </div>
+
+          <AIVoiceInput
+            onStart={() => {
+              setSymptomText("");
+              liveTranscriptRef.current = "";
+            }}
+            onStop={(duration) => {
+              console.log("Stopped after", duration, "seconds");
+              const final = liveTranscriptRef.current;
+              if (final) {
+                setVoiceTranscript(final);
+                setIsTyping(true);
+              }
+            }}
+            onTranscript={(text) => {
+              liveTranscriptRef.current = text;
+            }}
           />
 
           <div className="flex flex-wrap items-center gap-2">

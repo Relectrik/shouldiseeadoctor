@@ -12,7 +12,7 @@ const gradientButtonVariants = cva(
         default: "gradient-button text-white",
         variant: "gradient-button-variant text-white",
         secondary:
-          "border border-border bg-secondary text-secondary-foreground shadow-[0_8px_20px_rgba(43,36,31,0.08)] hover:bg-card",
+          "border border-[#e2e6f0] bg-[#e8f0fe] text-[#1e2d5a] hover:bg-[#dbe8fd] shadow-none dark:border-[#2a3a5c] dark:bg-[#1e2d5a] dark:text-[#e8f0fe] dark:hover:bg-[#253868]",
         ghost: "text-foreground hover:bg-muted shadow-none",
         success: "gradient-button-success text-white",
       },

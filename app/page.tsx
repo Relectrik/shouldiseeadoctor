@@ -22,7 +22,7 @@ const modules = [
     icon: Wallet,
   },
   {
-    title: "Bill Analyzer",
+    title: "I already saw a doctor!",
     description: "Upload or enter charges, compare to typical ranges, and flag potentially disputable fees.",
     icon: FileSearch,
   },

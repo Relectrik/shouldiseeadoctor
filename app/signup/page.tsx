@@ -34,7 +34,7 @@ export default function SignupPage() {
   }, [loading, router, user]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(163,174,149,0.24),_transparent_36%),radial-gradient(circle_at_75%_18%,_rgba(216,183,179,0.2),_transparent_38%),var(--background)] px-4 py-10">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(30,45,90,0.06),_transparent_36%),radial-gradient(circle_at_75%_18%,_rgba(232,84,58,0.05),_transparent_38%),var(--background)] px-4 py-10">
       <div className="mx-auto mb-4 flex w-full max-w-5xl justify-end">
         <ThemeToggle />
       </div>
