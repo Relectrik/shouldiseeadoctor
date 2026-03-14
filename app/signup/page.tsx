@@ -1,0 +1,65 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { AuthCard } from "@/components/common/auth-card";
+import { FirebaseModeBadge } from "@/components/common/firebase-mode-badge";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { getUserProfile } from "@/firebase/data";
+
+async function routeAfterAuth(userId: string, navigate: (path: string) => void) {
+  try {
+    const profile = await getUserProfile(userId);
+    navigate(profile ? "/dashboard" : "/onboarding");
+  } catch {
+    navigate("/onboarding");
+  }
+}
+
+export default function SignupPage() {
+  const router = useRouter();
+  const { signUp, signInGoogle, user, loading } = useAuth();
+
+  useEffect(() => {
+    router.prefetch("/dashboard");
+    router.prefetch("/onboarding");
+  }, [router]);
+
+  useEffect(() => {
+    if (!loading && user) {
+      void routeAfterAuth(user.uid, (path) => router.replace(path));
+    }
+  }, [loading, router, user]);
+
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(163,174,149,0.24),_transparent_36%),radial-gradient(circle_at_75%_18%,_rgba(216,183,179,0.2),_transparent_38%),var(--background)] px-4 py-10">
+      <div className="mx-auto mb-4 flex w-full max-w-5xl justify-end">
+        <ThemeToggle />
+      </div>
+      <div className="mx-auto grid w-full max-w-5xl items-start gap-5 md:grid-cols-2">
+        <div className="space-y-4">
+          <FirebaseModeBadge />
+        </div>
+        <AuthCard
+          title="Create your account"
+          description="Start your onboarding flow for personalized care and insurance guidance."
+          submitLabel="Sign up"
+          footerPrompt="Already have an account?"
+          footerLinkLabel="Log in"
+          footerHref="/login"
+          onGoogleSubmit={async () => {
+            const signedIn = await signInGoogle();
+            await routeAfterAuth(signedIn.uid, (path) => router.replace(path));
+          }}
+          googleSubmitLabel="Sign up with Google"
+          onSubmit={async (email, password) => {
+            const signedUp = await signUp(email, password);
+            await routeAfterAuth(signedUp.uid, (path) => router.replace(path));
+          }}
+        />
+      </div>
+    </div>
+  );
+}
