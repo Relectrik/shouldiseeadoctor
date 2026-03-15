@@ -31,17 +31,23 @@ export function analyzeBillItems(items: BillLineItem[]): BillAnalysisItem[] {
     if (!typical) {
       return {
         ...entry,
+        averagePrice: null,
+        differencePercent: null,
         typicalRange: "No benchmark in demo dataset",
         flag: "UNKNOWN",
       };
     }
 
     const [min, max] = typical;
+    const averagePrice = Math.round((min + max) / 2);
+    const differencePercent = Number((((entry.charged - averagePrice) / averagePrice) * 100).toFixed(1));
     const typicalRange = `$${min}-$${max}`;
 
     if (entry.charged > max) {
       return {
         ...entry,
+        averagePrice,
+        differencePercent,
         typicalRange,
         flag: "HIGH",
       };
@@ -50,6 +56,8 @@ export function analyzeBillItems(items: BillLineItem[]): BillAnalysisItem[] {
     if (entry.charged < min) {
       return {
         ...entry,
+        averagePrice,
+        differencePercent,
         typicalRange,
         flag: "LOW",
       };
@@ -57,6 +65,8 @@ export function analyzeBillItems(items: BillLineItem[]): BillAnalysisItem[] {
 
     return {
       ...entry,
+      averagePrice,
+      differencePercent,
       typicalRange,
       flag: "OK",
     };

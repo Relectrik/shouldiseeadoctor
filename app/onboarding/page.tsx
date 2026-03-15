@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
@@ -12,7 +13,13 @@ import { useAppSession } from "@/lib/use-app-session";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user, profile, authLoading, refreshProfile } = useAppSession({ requireProfile: false });
+  const { user, profile, authLoading, profileLoading, refreshProfile } = useAppSession({ requireProfile: false });
+
+  useEffect(() => {
+    if (!authLoading && !profileLoading && user && profile) {
+      router.replace("/dashboard");
+    }
+  }, [authLoading, profile, profileLoading, router, user]);
 
   if (authLoading) {
     return <LoadingState message="Loading onboarding..." />;
@@ -20,6 +27,10 @@ export default function OnboardingPage() {
 
   if (!user) {
     return null;
+  }
+
+  if (profileLoading && !profile) {
+    return <LoadingState message="Loading onboarding..." />;
   }
 
   return (

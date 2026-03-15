@@ -1,18 +1,51 @@
 "use client";
 
 import { Mic } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface AIVoiceInputProps {
   onStart?: () => void;
-  onStop?: (duration: number) => void;
+  onStop?: (duration: number, transcript?: string) => void;
   onTranscript?: (text: string) => void;
   visualizerBars?: number;
   demoMode?: boolean;
   demoInterval?: number;
   className?: string;
 }
+
+interface SpeechRecognitionAlternativeLike {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionResultLike {
+  length: number;
+  [index: number]: SpeechRecognitionAlternativeLike;
+}
+
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error?: string;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onspeechend: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 const cleanTranscript = (text: string): string => {
   return text
@@ -42,36 +75,100 @@ export function AIVoiceInput({
 }: AIVoiceInputProps) {
   const [submitted, setSubmitted] = useState(false);
   const [time, setTime] = useState(0);
-  const [isClient, setIsClient] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [isSupported] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    const speechWindow = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    return Boolean(speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition);
+  });
   const [isDemo, setIsDemo] = useState(demoMode);
 
-  useEffect(() => { setIsClient(true); }, []);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const isRecordingRef = useRef(false);
+  const restartAfterEndRef = useRef(false);
+  const networkRetryCountRef = useRef(0);
+  const transcriptRef = useRef("");
+  const durationRef = useRef(0);
+  const onStartRef = useRef(onStart);
+  const onStopRef = useRef(onStop);
+  const onTranscriptRef = useRef(onTranscript);
+
+  const barHeights = useMemo(
+    () => Array.from({ length: visualizerBars }, (_, i) => 20 + ((i * 37) % 80)),
+    [visualizerBars],
+  );
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
-    if (submitted) {
-      onStart?.();
-      intervalId = setInterval(() => { setTime((t) => t + 1); }, 1000);
-    } else {
-      onStop?.(time);
-      setTime(0);
+    onStartRef.current = onStart;
+  }, [onStart]);
+
+  useEffect(() => {
+    onStopRef.current = onStop;
+  }, [onStop]);
+
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  }, [onTranscript]);
+
+  const finishRecording = (durationOverride?: number) => {
+    if (!isRecordingRef.current) {
+      return;
     }
+
+    isRecordingRef.current = false;
+    setSubmitted(false);
+    const duration = typeof durationOverride === "number" ? durationOverride : durationRef.current;
+    const finalTranscript = cleanTranscript(transcriptRef.current);
+    if (finalTranscript) {
+      onTranscriptRef.current?.(finalTranscript);
+    }
+    onStopRef.current?.(duration, finalTranscript || undefined);
+    durationRef.current = 0;
+    transcriptRef.current = "";
+    setTime(0);
+  };
+
+  useEffect(() => {
+    if (!submitted) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      setTime((current) => {
+        const next = current + 1;
+        durationRef.current = next;
+        return next;
+      });
+    }, 1000);
+
     return () => clearInterval(intervalId);
   }, [submitted]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const recognition = new SpeechRecognition();
+    const speechWindow = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const SpeechRecognitionCtor = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = "en-US";
     recognition.maxAlternatives = 3;
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       let finalTranscript = "";
       for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
@@ -83,27 +180,76 @@ export function AIVoiceInput({
         }
         finalTranscript += bestAlt.transcript;
       }
-      onTranscript?.(cleanTranscript(finalTranscript));
+      const normalized = cleanTranscript(finalTranscript);
+      transcriptRef.current = normalized;
+      onTranscriptRef.current?.(normalized);
     };
 
     recognition.onspeechend = () => {
       recognition.stop();
     };
 
-    recognition.onerror = (event: any) => {
-      if (event.error !== "no-speech") {
-        console.warn("Speech recognition error:", event.error);
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      const errorCode = event.error ?? "unknown";
+      if (errorCode === "no-speech") {
+        return;
       }
+
+      if (errorCode === "network" && networkRetryCountRef.current < 1) {
+        // Web Speech can intermittently fail to connect; attempt one clean restart.
+        networkRetryCountRef.current += 1;
+        restartAfterEndRef.current = true;
+        try {
+          recognition.stop();
+        } catch {
+          restartAfterEndRef.current = false;
+        }
+        return;
+      }
+
+      if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
+        setVoiceError("Microphone permission is blocked. Enable mic access in browser settings.");
+      } else if (errorCode === "network") {
+        const offline = typeof navigator !== "undefined" && !navigator.onLine;
+        setVoiceError(
+          offline
+            ? "You appear to be offline. Reconnect to the internet and try voice input again."
+            : "Voice service connection failed. Try again, or disable VPN/content blockers for this site.",
+        );
+      } else {
+        setVoiceError(`Voice input error: ${errorCode}`);
+      }
+      finishRecording();
     };
 
-    if (submitted) {
-      try { recognition.start(); } catch (e) {}
-    } else {
-      try { recognition.stop(); } catch (e) {}
-    }
+    recognition.onend = () => {
+      if (restartAfterEndRef.current) {
+        restartAfterEndRef.current = false;
+        try {
+          recognition.start();
+          return;
+        } catch {
+          setVoiceError("Could not reconnect voice input. Please try again.");
+        }
+      }
+      finishRecording();
+    };
 
-    return () => { try { recognition.stop(); } catch (e) {} };
-  }, [submitted]);
+    recognitionRef.current = recognition;
+
+    return () => {
+      recognition.onresult = null;
+      recognition.onspeechend = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      try {
+        recognition.stop();
+      } catch {
+        // no-op: browser may already have stopped recognition
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDemo) return;
@@ -125,9 +271,63 @@ export function AIVoiceInput({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const startRecording = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setVoiceError("Voice input is not supported in this browser. Try Chrome.");
+      return;
+    }
+
+    setVoiceError(null);
+    restartAfterEndRef.current = false;
+    networkRetryCountRef.current = 0;
+    transcriptRef.current = "";
+    durationRef.current = 0;
+    setTime(0);
+    onStartRef.current?.();
+
+    try {
+      recognition.start();
+      isRecordingRef.current = true;
+      setSubmitted(true);
+    } catch {
+      isRecordingRef.current = false;
+      setSubmitted(false);
+      setVoiceError("Could not start voice input. Check microphone permission and try again.");
+    }
+  };
+
+  const stopRecording = () => {
+    const recognition = recognitionRef.current;
+    if (recognition) {
+      try {
+        recognition.stop();
+      } catch {
+        // no-op: already stopped
+      }
+    } else {
+      finishRecording();
+    }
+  };
+
   const handleClick = () => {
-    if (isDemo) { setIsDemo(false); setSubmitted(false); }
-    else { setSubmitted((prev) => !prev); }
+    if (isDemo) {
+      setIsDemo(false);
+      setSubmitted(false);
+      return;
+    }
+
+    if (!isSupported) {
+      setVoiceError("Voice input is not supported in this browser. Try Chrome.");
+      return;
+    }
+
+    if (submitted) {
+      stopRecording();
+      return;
+    }
+
+    startRecording();
   };
 
   return (
@@ -167,9 +367,9 @@ export function AIVoiceInput({
                 submitted ? "animate-pulse" : "h-1"
               )}
               style={
-                submitted && isClient
+                submitted
                   ? {
-                      height: `${20 + Math.random() * 80}%`,
+                      height: `${barHeights[i] ?? 40}%`,
                       animationDelay: `${i * 0.05}s`,
                       backgroundColor: "#e8543a",
                     }
@@ -183,13 +383,11 @@ export function AIVoiceInput({
           {submitted ? "Listening..." : "Click to speak"}
         </p>
 
-        {typeof window !== "undefined" &&
-          !(window as any).SpeechRecognition &&
-          !(window as any).webkitSpeechRecognition && (
-            <p className="text-xs mt-1" style={{ color: "#b03318" }}>
-              Voice input not supported in this browser. Try Chrome.
-            </p>
-        )}
+        {voiceError ? (
+          <p className="mt-1 text-xs" style={{ color: "#b03318" }}>
+            {voiceError}
+          </p>
+        ) : null}
       </div>
     </div>
   );

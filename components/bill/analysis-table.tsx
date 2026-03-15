@@ -23,7 +23,8 @@ export function BillAnalysisTable({ items }: { items: BillAnalysisItem[] }) {
           <TableRow>
             <TableHead>Item</TableHead>
             <TableHead>Charged</TableHead>
-            <TableHead>Typical Range</TableHead>
+            <TableHead>Average Price</TableHead>
+            <TableHead>Difference</TableHead>
             <TableHead>Flag</TableHead>
           </TableRow>
         </TableHeader>
@@ -32,7 +33,12 @@ export function BillAnalysisTable({ items }: { items: BillAnalysisItem[] }) {
             <TableRow key={`${item.item}-${index}`}>
               <TableCell className="font-medium text-card-foreground">{item.item}</TableCell>
               <TableCell>${item.charged}</TableCell>
-              <TableCell>{item.typicalRange}</TableCell>
+              <TableCell>{item.averagePrice ? `$${Math.round(item.averagePrice)}` : "Unavailable"}</TableCell>
+              <TableCell>
+                {item.differencePercent === null
+                  ? "Unavailable"
+                  : `${item.differencePercent > 0 ? "+" : ""}${item.differencePercent}%`}
+              </TableCell>
               <TableCell>{badgeForFlag(item.flag)}</TableCell>
             </TableRow>
           ))}

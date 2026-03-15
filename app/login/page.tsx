@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { AuthCard } from "@/components/common/auth-card";
-import { FirebaseModeBadge } from "@/components/common/firebase-mode-badge";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getUserProfile } from "@/firebase/data";
@@ -38,10 +37,7 @@ export default function LoginPage() {
       <div className="mx-auto mb-4 flex w-full max-w-5xl justify-end">
         <ThemeToggle />
       </div>
-      <div className="mx-auto grid w-full max-w-5xl items-start gap-5 md:grid-cols-2">
-        <div className="space-y-4">
-          <FirebaseModeBadge />
-        </div>
+      <div className="mx-auto w-full max-w-5xl">
         <AuthCard
           title="Welcome back"
           description="Sign in to continue your healthcare navigation dashboard."

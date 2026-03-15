@@ -12,7 +12,7 @@ export function RecentActivity({ symptomChecks }: RecentActivityProps) {
   const activityItems = symptomChecks
     .map((entry) => ({
       id: `symptom-${entry.id}`,
-      title: `${entry.triage.primaryRecommendation} recommended`,
+      title: `Recommended treatment: ${entry.triage.primaryRecommendation}`,
       detail: entry.rawSymptoms,
       date: entry.createdAt,
     }))

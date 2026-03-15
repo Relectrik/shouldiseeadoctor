@@ -13,8 +13,11 @@ export type EmploymentStatus =
 export type InsuranceStatus = "insured" | "uninsured" | "unknown";
 
 export interface UserProfile {
+  firstName: string;
+  lastName: string;
   age: number;
   gender: "female" | "male" | "non_binary" | "prefer_not_to_say";
+  city: string;
   state: string;
   zipCode: string;
   employmentStatus: EmploymentStatus;
@@ -67,6 +70,10 @@ export interface InsuranceRecommendation {
   qualifiesIf: string;
   whyItFits: string;
   nextSteps: string;
+  nextStepLinks: Array<{
+    label: string;
+    url: string;
+  }>;
 }
 
 export interface BillLineItem {
@@ -77,6 +84,8 @@ export interface BillLineItem {
 export type BillFlag = "HIGH" | "LOW" | "OK" | "UNKNOWN";
 
 export interface BillAnalysisItem extends BillLineItem {
+  averagePrice: number | null;
+  differencePercent: number | null;
   typicalRange: string;
   flag: BillFlag;
 }

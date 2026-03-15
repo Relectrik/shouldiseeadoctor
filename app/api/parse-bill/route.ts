@@ -1,197 +1,190 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI, { toFile } from "openai";
+import { OpenRouter } from "@openrouter/sdk";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MODEL_NAME = "nvidia/nemotron-nano-12b-v2-vl:free";
 
-// Disable Next.js built-in body parsing so formData() receives the raw stream
-export const config = {
-  api: { bodyParser: false },
-};
+const openrouter = new OpenRouter({
+  apiKey: process.env.OPENROUTER_API_KEY ?? "",
+});
 
-const EXTRACT_PROMPT = `You are a medical bill parser. Extract ALL line items from this medical bill.
-For each charge, output it on its own line in EXACTLY this format:
-Item Name: $Amount
+interface OpenRouterStreamChunk {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+    };
+  }>;
+}
 
-Rules:
-- Include every single charge, fee, and service listed
-- Use the exact item name from the bill
-- Only include the dollar amount as a number (e.g. $480, not $480.00 or 480)
-- Do not include taxes, totals, subtotals, insurance adjustments, or payments
-- Do not include any explanation, headers, or extra text
-- If you cannot find any charges, respond with: NO_CHARGES_FOUND`;
+interface ParsedLineItem {
+  item: string;
+  charged: number;
+}
+
+interface ParsedLineItemsResponse {
+  lineItems?: Array<{
+    item?: unknown;
+    charged?: unknown;
+  }>;
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractJsonPayload(text: string): string | null {
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    return fenced[1];
+  }
+
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return null;
+  }
+  return text.slice(firstBrace, lastBrace + 1);
+}
+
+function parseModelLineItems(rawText: string): ParsedLineItem[] {
+  const jsonPayload = extractJsonPayload(rawText);
+  if (!jsonPayload) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(jsonPayload) as ParsedLineItemsResponse;
+    if (!Array.isArray(parsed.lineItems)) {
+      return [];
+    }
+
+    return parsed.lineItems
+      .map((entry) => {
+        const item = toNonEmptyString(entry.item);
+        const charged = Number(entry.charged);
+        if (!item || !Number.isFinite(charged) || charged <= 0) {
+          return null;
+        }
+        return {
+          item,
+          charged: Number(charged.toFixed(2)),
+        };
+      })
+      .filter((entry): entry is ParsedLineItem => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+function parseLineItemsFromPlainText(rawText: string): ParsedLineItem[] {
+  return rawText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match =
+        line.match(/^(.*?)\s*[:\-]\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)$/) ??
+        line.match(/^(.*?)\s+\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)$/);
+      if (!match) {
+        return null;
+      }
+      const item = toNonEmptyString(match[1]);
+      const charged = Number(match[2].replaceAll(",", ""));
+      if (!item || !Number.isFinite(charged)) {
+        return null;
+      }
+      return { item, charged: Number(charged.toFixed(2)) };
+    })
+    .filter((entry): entry is ParsedLineItem => Boolean(entry));
+}
+
+function serializeLineItems(items: ParsedLineItem[]): string {
+  return items.map((entry) => `${entry.item}: $${entry.charged}`).join("\n");
+}
 
 export async function POST(req: NextRequest) {
-  // Step 4 — verify key is loaded
-  if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json(
-      { error: "OpenAI API key not configured." },
-      { status: 500 }
-    );
+  if (!process.env.OPENROUTER_API_KEY) {
+    return NextResponse.json({ error: "OpenRouter API key not configured." }, { status: 500 });
   }
 
   try {
     const formData = await req.formData();
-    const file = formData.get("file") as File;
+    const file = formData.get("file");
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "No file provided." }, { status: 400 });
     }
 
-    console.log("API key present:", !!process.env.OPENAI_API_KEY);
-    console.log("File received:", file.name, file.type, file.size, "bytes");
-
-    const bytes = await file.arrayBuffer();
-    const base64 = Buffer.from(bytes).toString("base64");
-    const mimeType = file.type;
-
-    const isImage = mimeType.startsWith("image/");
-    const isPDF = mimeType === "application/pdf";
-
-    if (!isImage && !isPDF) {
+    const mimeType = file.type || "application/octet-stream";
+    if (!mimeType.startsWith("image/")) {
       return NextResponse.json(
-        { error: "Only image or PDF files are supported" },
-        { status: 400 }
+        { error: "Receipt upload supports image files for AI parsing. For PDF, enter line items manually." },
+        { status: 400 },
       );
     }
 
-    let extractedText = "";
+    const bytes = await file.arrayBuffer();
+    const base64 = Buffer.from(bytes).toString("base64");
+    const dataUrl = `data:${mimeType};base64,${base64}`;
 
-    // ── Images ────────────────────────────────────────────────────────────────
-    if (isImage) {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
+    const prompt = `Extract every medical bill line item from this receipt image.
+Return ONLY valid JSON in this shape:
+{
+  "lineItems": [
+    { "item": "X-ray", "charged": 480 }
+  ]
+}
+
+Rules:
+- Include only individual billable charges.
+- Exclude totals, subtotals, taxes, insurance adjustments, and payments.
+- charged must be a number without currency symbols.
+- If nothing is legible, return {"lineItems":[]}.`;
+
+    const stream = await openrouter.chat.send({
+      chatGenerationParams: {
+        model: MODEL_NAME,
         messages: [
           {
             role: "user",
             content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType};base64,${base64}`,
-                  detail: "high",
-                },
-              },
-              { type: "text", text: EXTRACT_PROMPT },
+              { type: "text", text: prompt },
+              { type: "image_url", imageUrl: { url: dataUrl } },
             ],
           },
         ],
-        max_tokens: 1000,
-      });
-      extractedText = response.choices[0].message.content || "";
+        stream: true,
+      },
+    });
 
-      // Step 3 — retry with a simpler prompt if the first pass returned nothing
-      if (!extractedText || extractedText.trim().length < 5) {
-        console.log("Image extraction returned empty — retrying with simpler prompt");
-        const retry = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${mimeType};base64,${base64}`,
-                    detail: "high",
-                  },
-                },
-                {
-                  type: "text",
-                  text: "List every dollar amount and its label from this image, one per line as: Label: $Amount",
-                },
-              ],
-            },
-          ],
-          max_tokens: 800,
-        });
-        extractedText = retry.choices[0].message.content || "";
+    let rawResponse = "";
+    for await (const chunk of stream as AsyncIterable<OpenRouterStreamChunk>) {
+      const content = chunk.choices?.[0]?.delta?.content;
+      if (content) {
+        rawResponse += content;
       }
     }
 
-    // ── PDFs ──────────────────────────────────────────────────────────────────
-    if (isPDF) {
-      let uploadedFileId: string | null = null;
-
-      try {
-        // Upload the PDF to the OpenAI files API so the model can read it
-        const uploadable = await toFile(
-          new Blob([bytes], { type: "application/pdf" }),
-          file.name,
-          { type: "application/pdf" }
-        );
-
-        const uploaded = await openai.files.create({
-          file: uploadable,
-          purpose: "user_data",
-        });
-
-        uploadedFileId = uploaded.id;
-        console.log("Uploaded file ID:", uploadedFileId);
-
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "user",
-              // Cast needed: the SDK types lag behind the file content feature
-              content: [
-                { type: "file", file: { file_id: uploadedFileId } } as any,
-                {
-                  type: "text",
-                  text: `Extract all medical bill line items from this document.
-Output each charge on its own line in EXACTLY this format:
-Item Name: $Amount
-Only include individual charges. No totals, taxes, or insurance adjustments.
-If no charges found, respond with: NO_CHARGES_FOUND`,
-                },
-              ],
-            },
-          ],
-          max_tokens: 1000,
-        });
-
-        extractedText = response.choices[0].message.content || "";
-      } finally {
-        // Always clean up the uploaded file
-        if (uploadedFileId) {
-          try {
-            await openai.files.delete(uploadedFileId);
-            console.log("Deleted uploaded file:", uploadedFileId);
-          } catch (delErr) {
-            console.warn("Could not delete uploaded file:", uploadedFileId, delErr);
-          }
-        }
-      }
-    }
-
-    // ── Result handling ───────────────────────────────────────────────────────
-    console.log("Extracted text length:", extractedText.length);
-    console.log("Extracted text preview:", extractedText.slice(0, 200));
-
-    if (extractedText.includes("NO_CHARGES_FOUND") || !extractedText.trim()) {
+    const parsedFromJson = parseModelLineItems(rawResponse);
+    const parsedFromLines = parsedFromJson.length > 0 ? parsedFromJson : parseLineItemsFromPlainText(rawResponse);
+    if (parsedFromLines.length === 0) {
       return NextResponse.json(
         { error: "Could not extract charges from this file. Try entering them manually." },
-        { status: 422 }
+        { status: 422 },
       );
     }
 
-    return NextResponse.json({ lineItems: extractedText.trim() });
-
-  } catch (error: any) {
-    // Step 2 — full error logging
-    console.error("Full parse error:", JSON.stringify(error, null, 2));
-    console.error("Error message:", error?.message);
-    console.error("Error status:", error?.status);
-
-    const userMessage =
-      error?.status === 401
-        ? "Invalid OpenAI API key. Check your .env.local file."
-        : error?.status === 429
-        ? "OpenAI rate limit reached. Please try again in a moment."
-        : error?.status === 413
-        ? "File is too large. Try a smaller image or a shorter PDF."
-        : "Failed to parse bill. Please try again or enter charges manually.";
-
-    return NextResponse.json({ error: userMessage }, { status: 500 });
+    return NextResponse.json({
+      lineItems: serializeLineItems(parsedFromLines),
+    });
+  } catch (error) {
+    console.error("Receipt parse error:", error);
+    return NextResponse.json(
+      { error: "Failed to parse receipt. Please try again or enter line items manually." },
+      { status: 500 },
+    );
   }
 }

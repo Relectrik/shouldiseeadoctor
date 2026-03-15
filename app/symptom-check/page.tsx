@@ -3,14 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
-import { demoSymptomScenarios } from "@/data/demoScenarios";
 import { getCareRouteCostsByState } from "@/data/costs";
 import { saveSymptomCheck } from "@/firebase/data";
 import { getTriageRecommendation, parseSymptomsFromText } from "@/lib/triage";
-import { StructuredSymptoms, TriageResult } from "@/lib/types";
+import { CareRouteOption, TriageResult } from "@/lib/types";
 import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
 import { LoadingState } from "@/components/common/loading-state";
+import { CareRouteTable } from "@/components/symptom/care-route-table";
 import { AIVoiceInput } from "@/components/ui/ai-voice-input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -19,8 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
 interface SymptomResult {
-  structured: StructuredSymptoms;
   triage: TriageResult;
+  careRoute: CareRouteOption[];
 }
 
 function triageBadge(urgency: TriageResult["triageLevel"]) {
@@ -32,7 +32,7 @@ function triageBadge(urgency: TriageResult["triageLevel"]) {
 
 export default function SymptomCheckPage() {
   const { user, profile, authLoading, profileLoading } = useAppSession();
-  const [symptomText, setSymptomText] = useState(demoSymptomScenarios[0].text);
+  const [symptomText, setSymptomText] = useState("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const liveTranscriptRef = useRef("");
@@ -75,13 +75,47 @@ export default function SymptomCheckPage() {
     }
 
     const structured = parseSymptomsFromText(symptomText);
-    const triage = getTriageRecommendation(structured, symptomText);
-    const careRoute = getCareRouteCostsByState(profile.state);
-    const nextResult: SymptomResult = { structured, triage };
-    setResult(nextResult);
-
     setSubmitting(true);
     try {
+      let triage: TriageResult;
+      let careRoute: CareRouteOption[];
+
+      try {
+        const response = await fetch("/api/symptom-triage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symptoms: symptomText,
+            city: profile.city ?? "",
+            state: profile.state,
+            zipCode: profile.zipCode,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("LLM triage call failed");
+        }
+
+        const payload = (await response.json()) as {
+          triage?: TriageResult;
+          careRoute?: CareRouteOption[];
+        };
+
+        if (!payload.triage || !Array.isArray(payload.careRoute) || payload.careRoute.length === 0) {
+          throw new Error("Malformed LLM triage response");
+        }
+
+        triage = payload.triage;
+        careRoute = payload.careRoute;
+      } catch {
+        // Keep a local deterministic fallback so symptom checks remain usable.
+        triage = getTriageRecommendation(structured, symptomText);
+        careRoute = getCareRouteCostsByState(profile.state);
+        setError("AI analysis was unavailable. Showing backup rule-based guidance.");
+      }
+
+      setResult({ triage, careRoute });
+
       await saveSymptomCheck({
         userId: user.uid,
         rawSymptoms: symptomText,
@@ -103,22 +137,8 @@ export default function SymptomCheckPage() {
           <div>
             <h2 className="text-xl font-semibold text-card-foreground">What symptoms are you experiencing?</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Describe symptoms in natural language. The app structures symptoms and applies rule-based triage.
+              Describe symptoms in natural language. The app uses AI-assisted triage while keeping safety-first urgency categories.
             </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {demoSymptomScenarios.map((scenario) => (
-              <GradientButton
-                key={scenario.id}
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => setSymptomText(scenario.text)}
-              >
-                Demo: {scenario.label}
-              </GradientButton>
-            ))}
           </div>
 
           <Textarea
@@ -139,9 +159,9 @@ export default function SymptomCheckPage() {
               setSymptomText("");
               liveTranscriptRef.current = "";
             }}
-            onStop={(duration) => {
+            onStop={(duration, finalTranscript) => {
               console.log("Stopped after", duration, "seconds");
-              const final = liveTranscriptRef.current;
+              const final = finalTranscript ?? liveTranscriptRef.current;
               if (final) {
                 setVoiceTranscript(final);
                 setIsTyping(true);
@@ -154,10 +174,10 @@ export default function SymptomCheckPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <GradientButton onClick={analyzeSymptoms} disabled={submitting}>
-              {submitting ? "Saving..." : "Analyze symptoms"}
+              {submitting ? "Analyzing..." : "Analyze symptoms"}
             </GradientButton>
             <p className="text-xs text-muted-foreground">
-              State-aware costs use profile state: {profile?.state ?? "Loading..."}
+              Location context: {profile?.city ? `${profile.city}, ${profile.state}` : profile?.state ?? "Loading..."}
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -174,7 +194,7 @@ export default function SymptomCheckPage() {
               <div className="flex items-center gap-2">
                 {triageBadge(result.triage.triageLevel)}
                 <h3 className="text-lg font-semibold text-card-foreground">
-                  Recommended setting: {result.triage.primaryRecommendation}
+                  Recommended treatment: {result.triage.primaryRecommendation}
                 </h3>
               </div>
               <p className="text-sm text-muted-foreground">{result.triage.escalationAdvice}</p>
@@ -189,10 +209,11 @@ export default function SymptomCheckPage() {
               </div>
 
               <div>
-                <h4 className="mb-2 text-sm font-semibold text-card-foreground">Structured symptoms</h4>
-                <pre className="overflow-x-auto rounded-xl bg-secondary p-4 text-xs text-secondary-foreground">
-                  {JSON.stringify(result.structured, null, 2)}
-                </pre>
+                <h4 className="mb-2 text-sm font-semibold text-card-foreground">Treatment options and average pricing</h4>
+                <CareRouteTable
+                  routes={result.careRoute}
+                  recommendation={result.triage.primaryRecommendation}
+                />
               </div>
             </Card>
           </motion.div>

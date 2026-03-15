@@ -8,7 +8,6 @@ import { getRecentSymptomChecks } from "@/firebase/data";
 import { SymptomCheckRecord } from "@/lib/types";
 import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
-import { FirebaseModeBadge } from "@/components/common/firebase-mode-badge";
 import { LoadingState } from "@/components/common/loading-state";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { Card } from "@/components/ui/card";
@@ -16,9 +15,10 @@ import { ClipPathLinks } from "@/components/ui/clip-path-links";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
-  const { user, profile, authLoading } = useAppSession();
+  const { user, profile, authLoading } = useAppSession({ requireProfile: false });
   const [symptomChecks, setSymptomChecks] = useState<SymptomCheckRecord[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const displayName = profile?.firstName?.trim() || user?.email?.split("@")[0] || "there";
 
   useEffect(() => {
     if (!user) {
@@ -48,12 +48,11 @@ export default function DashboardPage() {
         transition={{ duration: 0.28, ease: "easeOut" }}
         className="space-y-6"
       >
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Hello, {user.email.split("@")[0]}</h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-foreground">Hello, {displayName}</h2>
             <p className="text-sm text-muted-foreground">Here is your care navigation and cost-awareness command center.</p>
           </div>
-          <FirebaseModeBadge />
         </div>
 
         <section className="space-y-3">

@@ -37,8 +37,11 @@ function formatOptionLabel(value: string) {
 }
 
 export function ProfileForm({ initialProfile, submitLabel, onSubmit, onCancel }: ProfileFormProps) {
+  const [firstName, setFirstName] = useState(initialProfile?.firstName ?? "");
+  const [lastName, setLastName] = useState(initialProfile?.lastName ?? "");
   const [age, setAge] = useState(String(initialProfile?.age ?? 25));
   const [gender, setGender] = useState<UserProfile["gender"]>(initialProfile?.gender ?? "prefer_not_to_say");
+  const [city, setCity] = useState(initialProfile?.city ?? "");
   const [state, setState] = useState(initialProfile?.state ?? "CA");
   const [zipCode, setZipCode] = useState(initialProfile?.zipCode ?? "");
   const [employmentStatus, setEmploymentStatus] = useState<UserProfile["employmentStatus"]>(
@@ -56,24 +59,30 @@ export function ProfileForm({ initialProfile, submitLabel, onSubmit, onCancel }:
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = useMemo(
-    () => Boolean(age && state && zipCode && familySize) && !submitting,
-    [age, familySize, state, submitting, zipCode],
+    () => Boolean(firstName && lastName && age && city && state && zipCode && familySize) && !submitting,
+    [age, city, familySize, firstName, lastName, state, submitting, zipCode],
   );
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
+    const normalizedFirstName = firstName.trim();
+    const normalizedLastName = lastName.trim();
     const parsedAge = Number(age);
     const parsedFamilySize = Number(familySize);
+    const normalizedCity = city.trim();
     const normalizedState = state.trim().toUpperCase();
     const normalizedZip = zipCode.trim();
 
     if (
+      normalizedFirstName.length < 1 ||
+      normalizedLastName.length < 1 ||
       Number.isNaN(parsedAge) ||
       parsedAge < 0 ||
       Number.isNaN(parsedFamilySize) ||
       parsedFamilySize <= 0 ||
+      normalizedCity.length < 2 ||
       normalizedState.length !== 2 ||
       normalizedZip.length < 5
     ) {
@@ -84,8 +93,11 @@ export function ProfileForm({ initialProfile, submitLabel, onSubmit, onCancel }:
     setSubmitting(true);
     try {
       await onSubmit({
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
         age: parsedAge,
         gender,
+        city: normalizedCity,
         state: normalizedState,
         zipCode: normalizedZip,
         employmentStatus,
@@ -103,6 +115,24 @@ export function ProfileForm({ initialProfile, submitLabel, onSubmit, onCancel }:
 
   return (
     <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+      <div className="space-y-2">
+        <Label htmlFor="first-name">First Name</Label>
+        <Input
+          id="first-name"
+          value={firstName}
+          onChange={(event) => setFirstName(event.target.value)}
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="last-name">Last Name</Label>
+        <Input
+          id="last-name"
+          value={lastName}
+          onChange={(event) => setLastName(event.target.value)}
+          required
+        />
+      </div>
       <div className="space-y-2">
         <Label htmlFor="age">Age</Label>
         <Input
@@ -131,6 +161,10 @@ export function ProfileForm({ initialProfile, submitLabel, onSubmit, onCancel }:
         </select>
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="city">City</Label>
+        <Input id="city" value={city} onChange={(event) => setCity(event.target.value)} required />
+      </div>
       <div className="space-y-2">
         <Label htmlFor="state">State (2-letter code)</Label>
         <Input

@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 
-import { demoBillInput } from "@/data/demoScenarios";
-import { analyzeBillItems, getDisputableCharges, parseManualCharges } from "@/lib/bill-analyzer";
 import { BillAnalysisItem } from "@/lib/types";
 import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
@@ -17,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 export default function BillAnalyzerPage() {
-  const { user, authLoading } = useAppSession();
-  const [rawInput, setRawInput] = useState(demoBillInput);
+  const { user, profile, authLoading, profileLoading } = useAppSession();
+  const [rawInput, setRawInput] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState("");
@@ -68,19 +66,40 @@ export default function BillAnalyzerPage() {
 
   const runAnalysis = async () => {
     setError(null);
-    const parsed = parseManualCharges(rawInput);
-
-    if (parsed.length === 0) {
+    if (!rawInput.trim()) {
       setError("Please enter at least one charge in the format Item: $Amount.");
+      return;
+    }
+    if (!profile || !profile.city || !profile.state) {
+      setError("Please complete your city and state in profile before AI bill analysis.");
       return;
     }
 
     setIsAnalyzing(true);
     try {
-      const analyzed = analyzeBillItems(parsed);
-      const highFlags = getDisputableCharges(analyzed);
-      setItems(analyzed);
-      setDisputable(highFlags);
+      const res = await fetch("/api/analyze-bill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rawInput,
+          city: profile.city,
+          state: profile.state,
+        }),
+      });
+
+      const data = (await res.json()) as {
+        items?: BillAnalysisItem[];
+        disputable?: string[];
+        error?: string;
+      };
+
+      if (!res.ok || !Array.isArray(data.items)) {
+        setError(data.error || "Unable to analyze this bill right now.");
+        return;
+      }
+
+      setItems(data.items);
+      setDisputable(Array.isArray(data.disputable) ? data.disputable : []);
     } catch {
       setError("Unable to analyze this input right now. Please retry.");
     } finally {
@@ -95,26 +114,26 @@ export default function BillAnalyzerPage() {
           <div>
             <h2 className="text-xl font-semibold text-card-foreground">I already saw a doctor!</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Upload a PDF/image and enter line items to compare billed charges with common cost ranges.
+              Upload a receipt and compare each charge against AI-estimated local averages for your city and state.
             </p>
           </div>
           <div className="rounded-xl border border-primary/35 bg-primary/10 p-3 text-sm text-foreground">
-            Privacy mode: uploaded files and bill line items are analyzed only in this browser session and are not
-            saved to Firebase Storage or Firestore.
+            Uploaded receipts are sent to an AI model for analysis. We do not store receipt files or bill contents in
+            your app database.
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="bill-file">Upload bill (PDF or image, optional)</Label>
+            <Label htmlFor="bill-file">Upload receipt image (optional)</Label>
             <Input
               id="bill-file"
               type="file"
-              accept=".pdf,image/*"
+              accept="image/*"
               onChange={handleFileUpload}
               disabled={isParsing}
             />
             {!file && !isParsing && (
               <p style={{ fontSize: "12px", color: "#8896b3", marginTop: "4px" }}>
-                Upload a PDF or photo of your bill — charges will be extracted automatically
+                Upload a receipt photo — line items will be extracted automatically
               </p>
             )}
             {file && !isParsing && (
@@ -158,13 +177,13 @@ export default function BillAnalyzerPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <GradientButton onClick={runAnalysis} disabled={isAnalyzing || isParsing}>
-              {isAnalyzing ? "Analyzing..." : "Analyze bill locally"}
-            </GradientButton>
-            <GradientButton type="button" variant="secondary" onClick={() => setRawInput(demoBillInput)}>
-              Use demo bill
+            <GradientButton onClick={runAnalysis} disabled={isAnalyzing || isParsing || profileLoading}>
+              {isAnalyzing ? "Analyzing..." : "Analyze bill with AI"}
             </GradientButton>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Location context: {profileLoading ? "Loading..." : (profile ? `${profile.city}, ${profile.state}` : "Not available")}
+          </p>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </Card>
 
@@ -183,12 +202,12 @@ export default function BillAnalyzerPage() {
               <h3 className="text-lg font-semibold text-card-foreground">Potentially disputable charges</h3>
               {disputable.length > 0 ? (
                 <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                  {disputable.map((line) => (
-                    <li key={line}>{line}</li>
+                  {disputable.map((line, index) => (
+                    <li key={`${line}-${index}`}>{line}</li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No significantly high charges were flagged from this input.</p>
+                <p className="text-sm text-muted-foreground">No charges were more than 10% above estimated local average.</p>
               )}
 
               <div className="rounded-xl bg-muted/35 p-4 text-sm text-muted-foreground">

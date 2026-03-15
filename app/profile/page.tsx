@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
 import { saveUserProfile } from "@/firebase/data";
+import { toTitleCase } from "@/lib/format";
 import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
 import { LoadingState } from "@/components/common/loading-state";
@@ -17,6 +19,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const { user, profile, authLoading, profileLoading, refreshProfile } = useAppSession();
   const { logout } = useAuth();
+  const [editing, setEditing] = useState(false);
 
   if (authLoading) {
     return <LoadingState message="Loading profile..." />;
@@ -38,18 +41,78 @@ export default function ProfilePage() {
           <CardHeader>
             <CardTitle>Profile settings</CardTitle>
             <CardDescription>
-              Update details used for insurance eligibility and cost-aware care recommendations.
+              Profile data is pulled from Firestore. Click Edit Profile to make changes.
             </CardDescription>
           </CardHeader>
           {profile ? (
-            <ProfileForm
-              initialProfile={profile}
-              submitLabel="Save profile"
-              onSubmit={async (nextProfile) => {
-                await saveUserProfile(user.uid, nextProfile);
-                await refreshProfile();
-              }}
-            />
+            editing ? (
+              <ProfileForm
+                initialProfile={profile}
+                submitLabel="Save profile changes"
+                onSubmit={async (nextProfile) => {
+                  await saveUserProfile(user.uid, nextProfile);
+                  await refreshProfile();
+                  setEditing(false);
+                }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <div className="space-y-4 p-6 pt-0">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">First Name</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.firstName || "Not set"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Last Name</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.lastName || "Not set"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Age</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.age}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Gender</p>
+                    <p className="text-sm font-medium text-card-foreground">{toTitleCase(profile.gender)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">City</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.city || "Not set"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">State</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.state}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">ZIP Code</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.zipCode}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Employment Status</p>
+                    <p className="text-sm font-medium text-card-foreground">{toTitleCase(profile.employmentStatus)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Income Bracket</p>
+                    <p className="text-sm font-medium text-card-foreground">{toTitleCase(profile.incomeBracket)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Student Status</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.studentStatus ? "Yes" : "No"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Insurance Status</p>
+                    <p className="text-sm font-medium text-card-foreground">{toTitleCase(profile.insuranceStatus)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-background/35 p-3">
+                    <p className="text-xs text-muted-foreground">Family Size</p>
+                    <p className="text-sm font-medium text-card-foreground">{profile.familySize}</p>
+                  </div>
+                </div>
+                <div>
+                  <GradientButton onClick={() => setEditing(true)}>Edit profile</GradientButton>
+                </div>
+              </div>
+            )
           ) : (
             <div className="space-y-3 p-6 pt-0">
               <Skeleton className="h-10 w-full" />

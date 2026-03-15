@@ -33,7 +33,7 @@ export default function InsurancePage() {
         className="space-y-6"
       >
         <Card>
-          <h2 className="text-xl font-semibold text-card-foreground">Insurance literacy + eligibility guidance</h2>
+          <h2 className="text-xl font-semibold text-card-foreground">Insurance recommendations and eligibility guidance</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Based on your profile, these options may help reduce premiums and out-of-pocket costs.
           </p>

@@ -8,6 +8,7 @@ import { Activity, FileSearch, Home, Shield, UserRound } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { DarkModeToggle } from "@/components/ui/dark-mode-toggle";
+import { GradientButton } from "@/components/ui/gradient-button";
 import { cn } from "@/utils/cn";
 
 const navLinks = [
@@ -123,12 +124,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="hidden items-center gap-3 md:flex">
             <DarkModeToggle />
             <p className="text-xs text-white/60">{user?.email}</p>
-            <button
+            <GradientButton
               onClick={handleLogout}
-              className="rounded-xl border border-white/40 bg-transparent px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
+              variant="secondary"
+              size="sm"
+              className="min-w-30 border-white/40 bg-transparent text-white hover:bg-white/10 dark:border-white/40 dark:bg-transparent dark:text-white dark:hover:bg-white/10"
             >
               Logout
-            </button>
+            </GradientButton>
           </div>
         </div>
         <nav className="mx-auto hidden w-full max-w-6xl items-center gap-2 px-4 pb-3 md:flex">

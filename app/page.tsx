@@ -1,6 +1,10 @@
-import Link from "next/link";
-import { Activity, ArrowRight, FileSearch, ShieldCheck, Wallet } from "lucide-react";
+"use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Activity, FileSearch, ShieldCheck, Wallet } from "lucide-react";
+
+import { useAuth } from "@/components/providers/auth-provider";
 import { Card } from "@/components/ui/card";
 import { GradientButton } from "@/components/ui/gradient-button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -29,6 +33,15 @@ const modules = [
 ];
 
 export default function Home() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/dashboard");
+    }
+  }, [loading, router, user]);
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(163,174,149,0.22),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(201,123,76,0.18),_transparent_32%),radial-gradient(circle_at_72%_22%,_rgba(216,183,179,0.22),_transparent_38%),var(--background)] px-4 py-10">
       <div className="mx-auto w-full max-w-6xl">
@@ -48,14 +61,11 @@ export default function Home() {
               overspending.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <GradientButton asChild size="lg">
-                <Link href="/signup">
-                  Create account
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
+              <GradientButton size="lg" onClick={() => router.push("/signup")}>
+                Create account
               </GradientButton>
-              <GradientButton asChild size="lg" variant="secondary">
-                <Link href="/login">Log in</Link>
+              <GradientButton size="lg" variant="secondary" onClick={() => router.push("/login")}>
+                Log in
               </GradientButton>
             </div>
           </div>

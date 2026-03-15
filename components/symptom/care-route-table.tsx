@@ -22,8 +22,8 @@ export function CareRouteTable({ routes, recommendation }: CareRouteTableProps) 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Care Option</TableHead>
-            <TableHead>Estimated Cost</TableHead>
+            <TableHead>Treatment Option</TableHead>
+            <TableHead>Average Price</TableHead>
             <TableHead>When To Use</TableHead>
             <TableHead>Typical Wait</TableHead>
             <TableHead>When To Escalate</TableHead>
@@ -31,7 +31,10 @@ export function CareRouteTable({ routes, recommendation }: CareRouteTableProps) 
         </TableHeader>
         <TableBody>
           {routes.map((route) => (
-            <TableRow key={route.option}>
+            <TableRow
+              key={route.option}
+              className={recommendation === route.option ? "bg-primary/10" : undefined}
+            >
               <TableCell className="font-medium text-card-foreground">
                 <div className="flex items-center gap-2">
                   {route.option}
