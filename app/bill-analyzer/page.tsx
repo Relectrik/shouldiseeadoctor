@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type InputHTMLAttributes } from "react";
 import { motion } from "framer-motion";
 
 import { BillAnalysisItem } from "@/lib/types";
@@ -8,22 +8,46 @@ import { useAppSession } from "@/lib/use-app-session";
 import { AppShell } from "@/components/common/app-shell";
 import { LoadingState } from "@/components/common/loading-state";
 import { BillAnalysisTable } from "@/components/bill/analysis-table";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { GradientButton } from "@/components/ui/gradient-button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { TimelineUpload, UploadFile } from "@/components/ui/timeline-upload";
+
+const directoryInputProps = {
+  directory: "",
+  webkitdirectory: "",
+} as unknown as InputHTMLAttributes<HTMLInputElement>;
 
 export default function BillAnalyzerPage() {
   const { user, profile, authLoading, profileLoading } = useAppSession();
   const [rawInput, setRawInput] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<UploadFile[]>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const folderRef = useRef<HTMLInputElement | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<BillAnalysisItem[] | null>(null);
   const [disputable, setDisputable] = useState<string[]>([]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setFiles((prev) =>
+        prev.map((entry) =>
+          entry.status === "uploading"
+            ? {
+                ...entry,
+                progress: Math.min(entry.progress + 15, 95),
+              }
+            : entry,
+        ),
+      );
+    }, 800);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   if (authLoading) {
     return <LoadingState message="Loading bill analyzer..." />;
@@ -33,35 +57,69 @@ export default function BillAnalyzerPage() {
     return null;
   }
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+  const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = event.target.files ? Array.from(event.target.files) : [];
+    if (selectedFiles.length === 0) {
+      return;
+    }
 
-    setFile(selectedFile);
     setParseError("");
+    const newFiles: UploadFile[] = selectedFiles.map((selectedFile) => ({
+      id: crypto.randomUUID(),
+      file: selectedFile,
+      progress: 0,
+      status: "uploading",
+    }));
+    setFiles((prev) => [...prev, ...newFiles]);
     setIsParsing(true);
 
-    try {
+    for (const uploadFile of newFiles) {
       const formData = new FormData();
-      formData.append("file", selectedFile);
+      formData.append("file", uploadFile.file);
 
-      const res = await fetch("/api/parse-bill", {
-        method: "POST",
-        body: formData,
-      });
+      try {
+        const res = await fetch("/api/parse-bill", {
+          method: "POST",
+          body: formData,
+        });
 
-      const data = await res.json();
+        const data = (await res.json()) as {
+          lineItems?: string;
+          error?: string;
+        };
 
-      if (!res.ok) {
-        setParseError(data.error || "Failed to parse file.");
-      } else {
-        setRawInput(data.lineItems);
+        if (!res.ok || typeof data.lineItems !== "string") {
+          throw new Error(data.error || "Failed to parse file.");
+        }
+
+        const nextLines = data.lineItems.trim();
+        if (nextLines) {
+          setRawInput((prev) => (prev.trim() ? `${prev.trim()}\n${nextLines}` : nextLines));
+        }
+      } catch (parseFailure) {
+        const message = parseFailure instanceof Error ? parseFailure.message : "Something went wrong reading the file.";
+        setParseError(message);
+      } finally {
+        setFiles((prev) =>
+          prev.map((entry) =>
+            entry.id === uploadFile.id
+              ? {
+                  ...entry,
+                  progress: 100,
+                  status: "done",
+                }
+              : entry,
+          ),
+        );
       }
-    } catch {
-      setParseError("Something went wrong reading the file.");
-    } finally {
-      setIsParsing(false);
     }
+
+    setIsParsing(false);
+    event.target.value = "";
+  };
+
+  const handleRemoveFile = (id: string) => {
+    setFiles((prev) => prev.filter((entry) => entry.id !== id));
   };
 
   const runAnalysis = async () => {
@@ -117,52 +175,49 @@ export default function BillAnalyzerPage() {
               Upload a receipt and compare each charge against AI-estimated local averages for your city and state.
             </p>
           </div>
-          <div className="rounded-xl border border-primary/35 bg-primary/10 p-3 text-sm text-foreground">
-            Uploaded receipts are sent to an AI model for analysis. We do not store receipt files or bill contents in
-            your app database.
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="bill-file">Upload receipt image (optional)</Label>
-            <Input
-              id="bill-file"
+          <div className="space-y-3">
+            <Label htmlFor="bill-file-upload">Upload receipt image (optional)</Label>
+            <input
+              id="bill-file-upload"
               type="file"
+              multiple
               accept="image/*"
-              onChange={handleFileUpload}
-              disabled={isParsing}
+              className="hidden"
+              ref={inputRef}
+              onChange={handleFileSelect}
             />
-            {!file && !isParsing && (
-              <p style={{ fontSize: "12px", color: "#8896b3", marginTop: "4px" }}>
-                Upload a receipt photo — line items will be extracted automatically
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              className="hidden"
+              ref={folderRef}
+              onChange={handleFileSelect}
+              {...directoryInputProps}
+            />
+            <div className="flex flex-wrap gap-3">
+              <Button type="button" onClick={() => inputRef.current?.click()} disabled={isParsing}>
+                Upload Files
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => folderRef.current?.click()}
+                disabled={isParsing}
+              >
+                Upload Folder
+              </Button>
+            </div>
+            {files.length > 0 ? (
+              <TimelineUpload files={files} onRemove={handleRemoveFile} />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Upload a receipt photo - line items will be extracted automatically.
               </p>
             )}
-            {file && !isParsing && (
-              <p className="text-xs text-muted-foreground">Selected file: {file.name}</p>
-            )}
-            {isParsing && (
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                marginTop: "8px",
-                fontSize: "13px",
-                color: "#e8543a",
-              }}>
-                <svg
-                  width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" strokeWidth="2"
-                  style={{ animation: "spin 1s linear infinite" }}
-                >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-                Reading your bill...
-              </div>
-            )}
-            {parseError && (
-              <p style={{ color: "#b03318", fontSize: "13px", marginTop: "6px" }}>
-                {parseError}
-              </p>
-            )}
+            {isParsing ? <p className="text-xs text-primary">Reading your bill...</p> : null}
+            {parseError ? <p className="text-sm text-destructive">{parseError}</p> : null}
           </div>
 
           <div className="space-y-2">
