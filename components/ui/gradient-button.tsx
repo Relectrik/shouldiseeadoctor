@@ -21,7 +21,7 @@ const gradientButtonVariants = cva(
           "border-[#065f46]/40 bg-background text-[#065f46] dark:text-[#a7f3d0] [&_.interactive-fill]:bg-[#065f46] [&_.interactive-hover]:text-white",
       },
       size: {
-        default: "h-10 min-w-70 px-4 py-2 text-sm",
+        default: "h-10 min-w-80 px-4 py-2 text-sm",
         sm: "h-9 min-w-[30.5rem] px-3 py-2 text-xs",
         lg: "h-11 min-w-[18.5rem] px-6 py-2 text-base",
         icon: "h-10 w-10 min-w-10 p-2",
