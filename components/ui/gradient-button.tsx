@@ -23,7 +23,7 @@ const gradientButtonVariants = cva(
       size: {
         default: "h-10 min-w-70 px-4 py-2 text-sm",
         sm: "h-9 min-w-[30.5rem] px-3 py-2 text-xs",
-        lg: "h-11 min-w-[13.5rem] px-6 py-2 text-base",
+        lg: "h-11 min-w-[18.5rem] px-6 py-2 text-base",
         icon: "h-10 w-10 min-w-10 p-2",
       },
     },
